@@ -1,12 +1,13 @@
 /**:
     ros__parameters:
-        map_file_path: "./src/fast-lio-relocalization/PCD/"
+        map_file_path: "./src/fast_lio/PCD/"
         common:
             lid_topic:  "/livox/lidar"
             imu_topic:  "/livox/imu"
             time_sync_en: false         # ONLY turn on when external time synchronization is really not possible
             time_offset_lidar_to_imu: 0.0 # Time offset between lidar and IMU calibrated by other algorithms, e.g. LI-Init (can be found in README).
                                         # This param will take effect no matter what time_sync_en is. So if the time offset is not known exactly, please set as 0.0
+            # 重定位
             reloc_en: true              # true: use priori global map
 
         preprocess:
@@ -21,10 +22,10 @@
             gyr_cov: 0.1
             b_acc_cov: 0.0001
             b_gyr_cov: 0.0001
-            fov_degree:    180.0
-            det_range:     260.0
+            fov_degree:    360.0
+            det_range:     450.0
             extrinsic_est_en:  false      # true: enable the online estimation of IMU-LiDAR extrinsic
-            extrinsic_T: [ 0.05512, 0.02226, -0.0297 ]
+            extrinsic_T: [ -0.011, -0.0234, 0.044 ]
             extrinsic_R: [ 1., 0., 0.,
                             0., 1., 0.,
                             0., 0., 1.]
@@ -36,10 +37,10 @@
                 y: 0.0
                 z: 0.0
             orientation:
-                w: 0.707 #1.0
+                w: 1.0
                 x: 0.0
                 y: 0.0
-                z: 0.707
+                z: 0.0
         
         publish:
             path_en: true                # true: publish Path
