@@ -33,21 +33,21 @@
         initialPose:
             use: true
             position:
-                x: 0.0
-                y: 0.0
-                z: 0.0
+                x: 0.07
+                y: -0.235
+                z: 0.45
             orientation:
-                w: 1.0
-                x: 0.0
-                y: 0.0
-                z: 0.0
+                w: 0.656
+                x: 0.265
+                y: 0.276
+                z: -0.651
         
         publish:
             path_en: true                # true: publish Path
             effect_map_en: false         # true: publish Effects
-            map_en: false                 # true: publish Map cloud
+            map_en: true                # true: publish Map cloud
             scan_publish_en: false       # false: close all the point cloud output
-            dense_publish_en: true      # false: low down the points number in a global-frame point clouds scan.
+            dense_publish_en: true       # false: low down the points number in a global-frame point clouds scan.
             scan_bodyframe_pub_en: true  # true: output the point cloud scans in IMU-body-frame
 
         pcd_save:

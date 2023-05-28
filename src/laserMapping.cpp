@@ -814,7 +814,7 @@ public:
             init_transform.translate(Eigen::Vector3f(init_trans.transform.translation.x,init_trans.transform.translation.y,init_trans.transform.translation.z));
             init_transform.rotate(Eigen::Quaternionf(init_trans.transform.rotation.w,init_trans.transform.rotation.x,init_trans.transform.rotation.y,init_trans.transform.rotation.z));
             pcl::transformPointCloud(*featsFromMap, *featsFromMap, init_transform.inverse());
-            pcl::transformPointCloud(*pcl_wait_pub, *pcl_wait_pub, init_transform.inverse());   
+            pcl::transformPointCloud(*pcl_wait_pub, *pcl_wait_pub, init_transform/*.inverse()*/);   
    
         }
         pcd_writer.writeBinary(map_file_path + "localization.pcd", *featsFromMap);

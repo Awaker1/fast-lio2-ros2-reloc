@@ -57,12 +57,12 @@ def generate_launch_description():
         package='tf2_ros',
         executable='static_transform_publisher',
         arguments = [
-            '--x', '0.0', #0.0815
-            '--y', '0.157', #-0.070
-            '--z', '0.0', #0.22441
-            '--yaw', '-1.57079', #2.3562
+            '--x', '0.152',
+            '--y', '-0.07',
+            '--z', '-0.484',
+            '--yaw', '1.57',
             '--pitch', '0.0',
-            '--roll', '0.0',
+            '--roll', '-0.785',
             '--frame-id', 'lidar',
             '--child-frame-id', 'body'
         ]
