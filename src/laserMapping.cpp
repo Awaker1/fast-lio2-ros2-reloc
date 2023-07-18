@@ -808,15 +808,15 @@ public:
         ikdtree.flatten(ikdtree.Root_Node, ikdtree.PCL_Storage, NOT_RECORD);
         featsFromMap->clear();
         featsFromMap->points = ikdtree.PCL_Storage;
-        if(initialPose_en)
-        {
+        // if(initialPose_en)
+        // {
             Eigen::Affine3f init_transform = Eigen::Affine3f::Identity();
-            init_transform.translate(Eigen::Vector3f(init_trans.transform.translation.x,init_trans.transform.translation.y,init_trans.transform.translation.z));
-            init_transform.rotate(Eigen::Quaternionf(init_trans.transform.rotation.w,init_trans.transform.rotation.x,init_trans.transform.rotation.y,init_trans.transform.rotation.z));
-            pcl::transformPointCloud(*featsFromMap, *featsFromMap, init_transform.inverse());
-            pcl::transformPointCloud(*pcl_wait_pub, *pcl_wait_pub, init_transform/*.inverse()*/);   
+            init_transform.translate(Eigen::Vector3f(lidar_extrinsic.transform.translation.x,lidar_extrinsic.transform.translation.y,lidar_extrinsic.transform.translation.z));
+            init_transform.rotate(Eigen::Quaternionf(lidar_extrinsic.transform.rotation.w,lidar_extrinsic.transform.rotation.x,lidar_extrinsic.transform.rotation.y,lidar_extrinsic.transform.rotation.z));
+            //pcl::transformPointCloud(*featsFromMap, *featsFromMap, init_transform);
+            pcl::transformPointCloud(*pcl_wait_pub, *pcl_wait_pub, init_transform);   
    
-        }
+        // }
         pcd_writer.writeBinary(map_file_path + "localization.pcd", *featsFromMap);
         pcd_writer.writeBinary(map_file_path + "mapping.pcd", *pcl_wait_pub);
     }
@@ -862,6 +862,14 @@ public:
         this->declare_parameter<double>("initialPose.orientation.x", 0.0);
         this->declare_parameter<double>("initialPose.orientation.y", 0.0);
         this->declare_parameter<double>("initialPose.orientation.z", 0.0);
+        
+        this->declare_parameter<double>("lidar_extrinsic.position.x", 0.0);
+        this->declare_parameter<double>("lidar_extrinsic.position.y", 0.0);
+        this->declare_parameter<double>("lidar_extrinsic.position.z", 0.0);
+        this->declare_parameter<double>("lidar_extrinsic.orientation.w", 1.0);
+        this->declare_parameter<double>("lidar_extrinsic.orientation.x", 0.0);
+        this->declare_parameter<double>("lidar_extrinsic.orientation.y", 0.0);
+        this->declare_parameter<double>("lidar_extrinsic.orientation.z", 0.0);
 
 
         this->declare_parameter<double>("preprocess.blind", 0.01);
@@ -924,15 +932,61 @@ public:
         this->get_parameter_or<double>("initialPose.orientation.y", init_trans.transform.rotation.y, 0.0);
         this->get_parameter_or<double>("initialPose.orientation.z", init_trans.transform.rotation.z, 0.0);
 
+        this->get_parameter_or<double>("lidar_extrinsic.position.x", lidar_extrinsic.transform.translation.x, 0.0);
+        this->get_parameter_or<double>("lidar_extrinsic.position.y", lidar_extrinsic.transform.translation.y, 0.0);
+        this->get_parameter_or<double>("lidar_extrinsic.position.z", lidar_extrinsic.transform.translation.z, 0.0);
+        this->get_parameter_or<double>("lidar_extrinsic.orientation.w", lidar_extrinsic.transform.rotation.w, 1.0);
+        this->get_parameter_or<double>("lidar_extrinsic.orientation.x", lidar_extrinsic.transform.rotation.x, 0.0);
+        this->get_parameter_or<double>("lidar_extrinsic.orientation.y", lidar_extrinsic.transform.rotation.y, 0.0);
+        this->get_parameter_or<double>("lidar_extrinsic.orientation.z", lidar_extrinsic.transform.rotation.z, 0.0);
+
+
         init_trans.header.frame_id = "map";
         init_trans.child_frame_id = "odom";
         init_trans.header.stamp = this -> now();
+        lidar_extrinsic.header.frame_id = "lidar";
+        lidar_extrinsic.child_frame_id = "body";
+        lidar_extrinsic.header.stamp = this -> now();
         tf_publisher_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
-        if(initialPose_en)
-        {
+        // if(initialPose_en)
+        // {
             std::cout << "init pose" << std::endl;
+            Eigen::Affine3f init_ = Eigen::Affine3f::Identity();
+            Eigen::Affine3f ex_ = Eigen::Affine3f::Identity();
+            Eigen::Affine3f c = Eigen::Affine3f::Identity();
+            init_.translate(Eigen::Vector3f(init_trans.transform.translation.x,init_trans.transform.translation.y,init_trans.transform.translation.z));
+            init_.rotate(Eigen::Quaternionf(init_trans.transform.rotation.w,init_trans.transform.rotation.x,init_trans.transform.rotation.y,init_trans.transform.rotation.z));
+            ex_.translate(Eigen::Vector3f(lidar_extrinsic.transform.translation.x,lidar_extrinsic.transform.translation.y,lidar_extrinsic.transform.translation.z));
+            ex_.rotate(Eigen::Quaternionf(lidar_extrinsic.transform.rotation.w,lidar_extrinsic.transform.rotation.x,lidar_extrinsic.transform.rotation.y,lidar_extrinsic.transform.rotation.z));
+	    if(initialPose_en)
+            c = ex_*init_;
+	    else
+		c=ex_;
+            auto tvec = c.translation();
+            auto q = c.rotation();
+            Eigen::Quaternionf quaternion(q);
+            init_trans.transform.translation.x = tvec[0];
+            init_trans.transform.translation.y = tvec[1];
+            init_trans.transform.translation.z = tvec[2];
+            init_trans.transform.rotation.w = quaternion.w();
+            init_trans.transform.rotation.x = quaternion.x();
+            init_trans.transform.rotation.y = quaternion.y();
+            init_trans.transform.rotation.z = quaternion.z();
             tf_publisher_->sendTransform(init_trans);
-        }
+        // }
+	c = ex_.inverse();
+	tvec = c.translation();
+	q = c.rotation();
+        Eigen::Quaternionf quaternion2(q);
+        lidar_extrinsic.transform.translation.x = tvec[0];
+        lidar_extrinsic.transform.translation.y = tvec[1];
+        lidar_extrinsic.transform.translation.z = tvec[2];
+        lidar_extrinsic.transform.rotation.w = quaternion2.w();
+        lidar_extrinsic.transform.rotation.x = quaternion2.x();
+        lidar_extrinsic.transform.rotation.y = quaternion2.y();
+        lidar_extrinsic.transform.rotation.z = quaternion2.z();
+
+        tf_publisher_->sendTransform(lidar_extrinsic);
 
 
         RCLCPP_INFO(this->get_logger(), "p_pre->lidar_type %d", p_pre->lidar_type);
@@ -1018,7 +1072,8 @@ public:
                 Eigen::Affine3f init_transform = Eigen::Affine3f::Identity();
                 init_transform.translate(Eigen::Vector3f(init_trans.transform.translation.x,init_trans.transform.translation.y,init_trans.transform.translation.z));
                 init_transform.rotate(Eigen::Quaternionf(init_trans.transform.rotation.w,init_trans.transform.rotation.x,init_trans.transform.rotation.y,init_trans.transform.rotation.z));
-                pcl::transformPointCloud(*cloud, *cloud, init_transform);   
+                pcl::transformPointCloud(*cloud, *cloud,init_
+);   
             }
             ikdtree.Build(cloud -> points);
         }
@@ -1299,7 +1354,7 @@ private:
     double epsi[23] = {0.001};
 
     bool initialPose_en = false;
-    geometry_msgs::msg::TransformStamped init_trans;
+    geometry_msgs::msg::TransformStamped init_trans,lidar_extrinsic;
     std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_publisher_;
 
 
