@@ -38,7 +38,7 @@ PCL与Eigen版本均使用Ubuntu22.04，ROS2 Humble apt源安装，安装命令�
 
 ### 1.3. **livox_ros_driver**2
 
-目前算法主要适配 **Livox-MID360** 激光雷达，其官方ROS driver地址:https://github.com/Livox-SDK/livox_ros_driver2,由于其适配ROS版本方法太ex，编译过程中会出现诸多问题，遂推荐使用云龙大佬修改的ros驱动:https://github.com/Ericsii/livox_ros_driver2/tree/feature/merge-ros ,该版本驱动可使用ROS2 colcon工具正常编译。
+目前算法主要适配 **Livox-MID360** 激光雷达，其官方ROS driver地址:https://github.com/Livox-SDK/livox_ros_driver2 ,由于其适配ROS版本方法太ex，编译过程中会出现诸多问题，遂推荐使用云龙大佬修改的ros驱动:https://github.com/Ericsii/livox_ros_driver2/tree/feature/merge-ros ,该版本驱动可使用ROS2 colcon工具正常编译。
 
 ## 2. Build
 
@@ -58,7 +58,7 @@ source install/local_setup.sh
 对于**Livox-MID360** 激光雷达
 
 ```
-ros2 launch livox_ros_driver msg_MID360.launch.py
+ros2 launch livox_ros_driver2 msg_MID360_launch.py
 ros2 launch fast_lio mapping.launch.py
 ```
 
