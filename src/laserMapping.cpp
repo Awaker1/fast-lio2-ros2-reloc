@@ -54,6 +54,7 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/common/transforms.h>  // pcl::transformPointCloud
+#include <pcl/filters/crop_box.h>
 
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -145,6 +146,11 @@ geometry_msgs::msg::PoseStamped msg_body_pose;
 
 shared_ptr<Preprocess> p_pre(new Preprocess());
 shared_ptr<ImuProcess> p_imu(new ImuProcess());
+
+Eigen::Affine3f ex_;
+pcl::CropBox<PointType> box_filter;//滤波器对象
+bool body_filter;
+float body_height,body_radius;
 
 void SigHandle(int sig)
 {
@@ -348,6 +354,20 @@ void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::UniquePtr msg)
 
     PointCloudXYZI::Ptr  ptr(new PointCloudXYZI());
     p_pre->process(msg, ptr);
+    if(body_filter)
+    {
+        //点云切系过滤车体
+        box_filter.setMin(Eigen::Vector4f(-body_radius,-body_radius, 0, 1.0));//Min和Max是指立方体的两个对角点。每个点由一个四维向量表示，通常最后一个是1.（不知道为什么要有四个，大神知道的给解答一下下）
+        box_filter.setMax(Eigen::Vector4f(body_radius, body_radius, body_height, 1.0));
+        pcl::transformPointCloud(*ptr,*ptr,ex_.inverse());
+
+        box_filter.setNegative(true);
+        box_filter.setInputCloud(ptr);//输入源
+        box_filter.filter(*ptr);
+        pcl::transformPointCloud(*ptr,*ptr,ex_);
+    }
+
+ 
     lidar_buffer.push_back(ptr);
     time_buffer.push_back(last_timestamp_lidar);
     
@@ -617,7 +637,9 @@ void publish_map(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub
 
 
 
+
 template<typename T>
+
 void set_posestamp(T & out)
 {
     out.pose.position.x = state_point.pos(0);
@@ -814,11 +836,11 @@ public:
             init_transform.translate(Eigen::Vector3f(lidar_extrinsic.transform.translation.x,lidar_extrinsic.transform.translation.y,lidar_extrinsic.transform.translation.z));
             init_transform.rotate(Eigen::Quaternionf(lidar_extrinsic.transform.rotation.w,lidar_extrinsic.transform.rotation.x,lidar_extrinsic.transform.rotation.y,lidar_extrinsic.transform.rotation.z));
             //pcl::transformPointCloud(*featsFromMap, *featsFromMap, init_transform);
-            pcl::transformPointCloud(*pcl_wait_pub, *pcl_wait_pub, init_transform);   
+            pcl::transformPointCloud(*pcl_wait_pub, *pcl_wait_pub, init_transform.inverse());   
    
         // }
-        pcd_writer.writeBinary(map_file_path + "localization.pcd", *featsFromMap);
-        pcd_writer.writeBinary(map_file_path + "mapping.pcd", *pcl_wait_pub);
+        pcd_writer.writeBinary(map_file_path + "localization_baup.pcd", *featsFromMap);
+        pcd_writer.writeBinary(map_file_path + "mapping_baup.pcd", *pcl_wait_pub);
     }
     
     LaserMappingNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions()) : Node("laser_mapping", options)
@@ -877,6 +899,9 @@ public:
         this->declare_parameter<int>("preprocess.scan_line", 16);
         this->declare_parameter<int>("preprocess.timestamp_unit", US);
         this->declare_parameter<int>("preprocess.scan_rate", 10);
+        this->declare_parameter<bool>("preprocess.body_filter", false);
+        this->declare_parameter<float>("preprocess.body_radius", 0.5);
+        this->declare_parameter<float>("preprocess.body_height", 0.5);
 
         this->declare_parameter<int>("point_filter_num", 2);
         this->declare_parameter<bool>("feature_extract_enable", false);
@@ -914,6 +939,10 @@ public:
         this->get_parameter_or<int>("preprocess.scan_line", p_pre->N_SCANS, 16);
         this->get_parameter_or<int>("preprocess.timestamp_unit", p_pre->time_unit, US);
         this->get_parameter_or<int>("preprocess.scan_rate", p_pre->SCAN_RATE, 10);
+        this->get_parameter_or<bool>("preprocess.body_filter", body_filter, false);
+        this->get_parameter_or<float>("preprocess.body_radius", body_radius, 0.5);
+        this->get_parameter_or<float>("preprocess.body_height", body_height, 0.5);
+        
         this->get_parameter_or<int>("point_filter_num", p_pre->point_filter_num, 2);
         this->get_parameter_or<bool>("feature_extract_enable", p_pre->feature_enabled, false);
         this->get_parameter_or<bool>("runtime_pos_log_enable", runtime_pos_log, 0);
@@ -952,7 +981,7 @@ public:
         // {
             std::cout << "init pose" << std::endl;
             Eigen::Affine3f init_ = Eigen::Affine3f::Identity();
-            Eigen::Affine3f ex_ = Eigen::Affine3f::Identity();
+            ex_ = Eigen::Affine3f::Identity();
             Eigen::Affine3f c = Eigen::Affine3f::Identity();
             init_.translate(Eigen::Vector3f(init_trans.transform.translation.x,init_trans.transform.translation.y,init_trans.transform.translation.z));
             init_.rotate(Eigen::Quaternionf(init_trans.transform.rotation.w,init_trans.transform.rotation.x,init_trans.transform.rotation.y,init_trans.transform.rotation.z));
@@ -1063,7 +1092,7 @@ public:
         if(reloc_en)
         {
             PointCloudXYZI::Ptr cloud(new PointCloudXYZI);
-            if (pcl::io::loadPCDFile<pcl::PointXYZINormal>(map_file_path + "localization.pcd", *cloud) == -1) //* load the file
+            if (pcl::io::loadPCDFile<pcl::PointXYZINormal>(map_file_path + "localization_baup.pcd", *cloud) == -1) //* load the file
             {
                 PCL_ERROR("读取test_pcd.pcd失败 \n");
             }

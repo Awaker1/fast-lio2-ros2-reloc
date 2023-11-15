@@ -8,7 +8,7 @@
             time_offset_lidar_to_imu: 0.0 # Time offset between lidar and IMU calibrated by other algorithms, e.g. LI-Init (can be found in README).
                                         # This param will take effect no matter what time_sync_en is. So if the time offset is not known exactly, please set as 0.0
             # 重定位
-            reloc_en: true           # true: use priori global map
+            reloc_en: false       # true: use priori global map
 
         preprocess:
             lidar_type: 1                # 1 for Livox serials LiDAR, 2 for Velodyne LiDAR, 3 for ouster LiDAR, 
@@ -16,6 +16,9 @@
             blind: 0.1
             timestamp_unit: 3
             scan_rate: 10
+            body_filter: true # 是否滤除车体
+            body_radius: 0.33
+            body_height: 0.7
 
         mapping:
             acc_cov: 0.1
@@ -31,33 +34,33 @@
                             0., 0., 1.]
 
         initialPose:
-            use: false  #blue=true,red=false
+            use: true  #blue=true,red=false
             position:
-                x: 2.902 #0.07
-                y: 14.535 #-0.235
-                z: 3.212 #0.45
+                x: 0.000 #0.07
+                y: 0.000 #-0.235
+                z: 0.000 #0.45
             orientation:
-                w: 0.0038 #0.656
-                x: 0.7238 #0.265
-                y: 0.0036 #0.276
-                z: -0.6899 #-0.651
+                w: 1.000 #0.656
+                x: 0.000 #0.265
+                y: 0.000 #0.276
+                z: 0.000 #-0.651
 
         lidar_extrinsic: #body2lidar
             position:
-                x: 0.07
-                y: -0.235
-                z: 0.45
+                x: 0.0575
+                y: 0.0
+                z: 0.55
             orientation:
-                w: 0.656
-                x: 0.265
-                y: 0.276
-                z: -0.651            
+                w: 0.0
+                x: -0.707
+                y: 0.707
+                z: 0.000            
         
         publish:
             path_en: true                # true: publish Path
             effect_map_en: false         # true: publish Effects
-            map_en: false                # true: publish Map cloud
-            scan_publish_en: false       # false: close all the point cloud output
+            map_en: true                # true: publish Map cloud
+            scan_publish_en: true       # false: close all the point cloud output
             dense_publish_en: true       # false: low down the points number in a global-frame point clouds scan.
             scan_bodyframe_pub_en: true  # true: output the point cloud scans in IMU-body-frame
 
