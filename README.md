@@ -8,7 +8,7 @@
 
 1. [ikd-Tree](https://github.com/hku-mars/ikd-Tree): A state-of-art dynamic KD-Tree for 3D kNN search.
 2. [IKFOM](https://github.com/hku-mars/IKFoM): A Toolbox for fast and high-precision on-manifold Kalman filter.
-3. [FAST-LIO-ROS2 version](https://github.com/Ericsii/FAST_LIO)
+3. [FAST-LIO-ROS2 version](https://github.com/Ericsii/FAST_LIO): ROS2版本fastlio
 
 ## FAST-LIO
 
@@ -73,6 +73,7 @@ path: ./config/mid360.yaml
 - map_file_path：点云地图保存/加载路径
 - reloc_en：是否加载先验地图进行定位
 - initialPose：机器人在地图坐标系下的启动位置（可由建图过程中输出的里程信息获得），使用先验地图定位功能时需确定机器人在地图中的初始位置。
+- lidar_extrinsic： 设置**车体系到雷达系**变换关系
 - pcd_save_en：是否保存PCD点云地图，建图时开启，同时需保证map_en置true。
 
 ## Best Practice
@@ -102,7 +103,14 @@ pcd_save:
 ros2 launch fast_lio mapping.launch.py
 ```
 
-可以打开rviz查看定位情况，建图完成后ctrl+c关闭即可保存地图，地图保存在指定的文件夹下，可使用`pcl_viewer`工具查看。注意，目前地图零点为程序起始位置，也可以通过设置initial pose改变起始点在地图中的位置。建议使用rosbag录制数据后回放数据建图，一方面防止异常终止，另一方面可以使用该数据验证后续地图定位功能。
+可以打开rviz查看实时定位情况，建图完成后运行 `save_map.sh` 即可保存地图，地图保存在指定的文件夹下，默认为PCD文件夹。  
+保存的点云地图有两个文件，`localization.pcd` 保存程序运行中用于定位的点云，`mapping.pcd` 保存建图过程中稠密点云，可用于生成导航地图。点云pcd文件可使用`pcl_viewer`工具查看地图。
+> 安装pclviewer工具：`sudo apt install pcl-tools`
+```
+pcl_viewer mapping.pcd
+```
+- 注意，目前地图零点为程序起始位置，也可以通过设置initial pose改变起始点在地图中的位置。  
+- 建议使用rosbag录制数据后回放数据建图，一方面防止异常终止，另一方面可以使用该数据验证后续地图定位功能。
 
 **地图定位功能测试：**
 
@@ -125,7 +133,7 @@ pcd_save:
 
 ## Known Issues
 
-- 激光雷达倒置时算法工作不稳定，极易出现飘飞情况，倾斜放置没有问题。
+- ~~激光雷达倒置时算法工作不稳定，极易出现飘飞情况，倾斜放置没有问题。~~
 
 - 初始位姿设定与真实情况差距较大时（尤其是旋转差异较大时）容易飘飞。
 
@@ -134,6 +142,7 @@ pcd_save:
 - [x] ROS2建图功能
 - [x] 基于已有地图进行匹配定位
 - [x] 异地初始化定位
+- [x] 倒装雷达定位功能稳定性测试
 - [ ] 优化代码结构，解决已知Bug
 - [ ] 通过位姿状态量赋值实现定位初始化或全局重定位位姿调整
 - [ ] 提高位置输出帧率

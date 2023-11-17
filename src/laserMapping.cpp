@@ -832,15 +832,17 @@ public:
         featsFromMap->points = ikdtree.PCL_Storage;
         // if(initialPose_en)
         // {
-            Eigen::Affine3f init_transform = Eigen::Affine3f::Identity();
-            init_transform.translate(Eigen::Vector3f(lidar_extrinsic.transform.translation.x,lidar_extrinsic.transform.translation.y,lidar_extrinsic.transform.translation.z));
-            init_transform.rotate(Eigen::Quaternionf(lidar_extrinsic.transform.rotation.w,lidar_extrinsic.transform.rotation.x,lidar_extrinsic.transform.rotation.y,lidar_extrinsic.transform.rotation.z));
-            //pcl::transformPointCloud(*featsFromMap, *featsFromMap, init_transform);
-            pcl::transformPointCloud(*pcl_wait_pub, *pcl_wait_pub, init_transform.inverse());   
+        Eigen::Affine3f init_transform = Eigen::Affine3f::Identity();
+        init_transform.translate(Eigen::Vector3f(lidar_extrinsic.transform.translation.x,lidar_extrinsic.transform.translation.y,lidar_extrinsic.transform.translation.z));
+        init_transform.rotate(Eigen::Quaternionf(lidar_extrinsic.transform.rotation.w,lidar_extrinsic.transform.rotation.x,lidar_extrinsic.transform.rotation.y,lidar_extrinsic.transform.rotation.z));
+        //pcl::transformPointCloud(*featsFromMap, *featsFromMap, init_transform);
+        PointCloudXYZI::Ptr map_save(new PointCloudXYZI());
+
+        pcl::transformPointCloud(*pcl_wait_pub, *map_save, ex_.inverse());   
    
         // }
-        pcd_writer.writeBinary(map_file_path + "localization_baup.pcd", *featsFromMap);
-        pcd_writer.writeBinary(map_file_path + "mapping_baup.pcd", *pcl_wait_pub);
+        pcd_writer.writeBinary(map_file_path + "localization.pcd", *featsFromMap);
+        pcd_writer.writeBinary(map_file_path + "mapping.pcd", *map_save);
     }
     
     LaserMappingNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions()) : Node("laser_mapping", options)
@@ -979,33 +981,36 @@ public:
         tf_publisher_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
         // if(initialPose_en)
         // {
-            std::cout << "init pose" << std::endl;
-            Eigen::Affine3f init_ = Eigen::Affine3f::Identity();
-            ex_ = Eigen::Affine3f::Identity();
-            Eigen::Affine3f c = Eigen::Affine3f::Identity();
-            init_.translate(Eigen::Vector3f(init_trans.transform.translation.x,init_trans.transform.translation.y,init_trans.transform.translation.z));
-            init_.rotate(Eigen::Quaternionf(init_trans.transform.rotation.w,init_trans.transform.rotation.x,init_trans.transform.rotation.y,init_trans.transform.rotation.z));
-            ex_.translate(Eigen::Vector3f(lidar_extrinsic.transform.translation.x,lidar_extrinsic.transform.translation.y,lidar_extrinsic.transform.translation.z));
-            ex_.rotate(Eigen::Quaternionf(lidar_extrinsic.transform.rotation.w,lidar_extrinsic.transform.rotation.x,lidar_extrinsic.transform.rotation.y,lidar_extrinsic.transform.rotation.z));
-	    if(initialPose_en)
+        std::cout << "init pose" << std::endl;
+        Eigen::Affine3f init_ = Eigen::Affine3f::Identity();
+        ex_ = Eigen::Affine3f::Identity();
+        Eigen::Affine3f c = Eigen::Affine3f::Identity();
+        init_.translate(Eigen::Vector3f(init_trans.transform.translation.x,init_trans.transform.translation.y,init_trans.transform.translation.z));
+        init_.rotate(Eigen::Quaternionf(init_trans.transform.rotation.w,init_trans.transform.rotation.x,init_trans.transform.rotation.y,init_trans.transform.rotation.z));
+        ex_.translate(Eigen::Vector3f(lidar_extrinsic.transform.translation.x,lidar_extrinsic.transform.translation.y,lidar_extrinsic.transform.translation.z));
+        ex_.rotate(Eigen::Quaternionf(lidar_extrinsic.transform.rotation.w,lidar_extrinsic.transform.rotation.x,lidar_extrinsic.transform.rotation.y,lidar_extrinsic.transform.rotation.z));
+	    
+        if(initialPose_en)
             c = ex_*init_;
 	    else
-		c=ex_;
-            auto tvec = c.translation();
-            auto q = c.rotation();
-            Eigen::Quaternionf quaternion(q);
-            init_trans.transform.translation.x = tvec[0];
-            init_trans.transform.translation.y = tvec[1];
-            init_trans.transform.translation.z = tvec[2];
-            init_trans.transform.rotation.w = quaternion.w();
-            init_trans.transform.rotation.x = quaternion.x();
-            init_trans.transform.rotation.y = quaternion.y();
-            init_trans.transform.rotation.z = quaternion.z();
-            tf_publisher_->sendTransform(init_trans);
+            c = ex_;
+        auto tvec = c.translation();
+        auto q = c.rotation();
+        Eigen::Quaternionf quaternion(q);
+        init_trans.transform.translation.x = tvec[0];
+        init_trans.transform.translation.y = tvec[1];
+        init_trans.transform.translation.z = tvec[2];
+        init_trans.transform.rotation.w = quaternion.w();
+        init_trans.transform.rotation.x = quaternion.x();
+        init_trans.transform.rotation.y = quaternion.y();
+        init_trans.transform.rotation.z = quaternion.z();
+        tf_publisher_->sendTransform(init_trans);
         // }
-	c = ex_.inverse();
-	tvec = c.translation();
-	q = c.rotation();
+
+        c = ex_.inverse();
+        tvec = c.translation();
+        q = c.rotation();
+
         Eigen::Quaternionf quaternion2(q);
         lidar_extrinsic.transform.translation.x = tvec[0];
         lidar_extrinsic.transform.translation.y = tvec[1];
@@ -1088,13 +1093,13 @@ public:
         timer_ = rclcpp::create_timer(this, this->get_clock(), period_ms, std::bind(&LaserMappingNode::timer_callback, this));
         
         // global map input
-        
+        map_file_path = ROOT_DIR + map_file_path;
         if(reloc_en)
         {
             PointCloudXYZI::Ptr cloud(new PointCloudXYZI);
-            if (pcl::io::loadPCDFile<pcl::PointXYZINormal>(map_file_path + "localization_baup.pcd", *cloud) == -1) //* load the file
+            if (pcl::io::loadPCDFile<pcl::PointXYZINormal>(map_file_path + "localization.pcd", *cloud) == -1) //* load the file
             {
-                PCL_ERROR("读取test_pcd.pcd失败 \n");
+                std::cout << "读取 " <<  map_file_path + "localization.pcd" << " 失败!" << std::endl;
             }
             if(initialPose_en)
             {

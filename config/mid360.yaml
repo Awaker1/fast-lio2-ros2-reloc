@@ -1,6 +1,6 @@
 /**:
     ros__parameters:
-        map_file_path: "./src/fast_lio/PCD/"
+        map_file_path: "./PCD/"
         common:
             lid_topic:  "/livox/lidar"
             imu_topic:  "/livox/imu"
