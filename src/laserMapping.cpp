@@ -1106,8 +1106,7 @@ public:
                 Eigen::Affine3f init_transform = Eigen::Affine3f::Identity();
                 init_transform.translate(Eigen::Vector3f(init_trans.transform.translation.x,init_trans.transform.translation.y,init_trans.transform.translation.z));
                 init_transform.rotate(Eigen::Quaternionf(init_trans.transform.rotation.w,init_trans.transform.rotation.x,init_trans.transform.rotation.y,init_trans.transform.rotation.z));
-                pcl::transformPointCloud(*cloud, *cloud,init_
-);   
+                pcl::transformPointCloud(*cloud, *cloud,init_.inverse());   
             }
             ikdtree.Build(cloud -> points);
         }
