@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(fast_lio)
+project(locate)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
