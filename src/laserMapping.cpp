@@ -359,12 +359,13 @@ void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::UniquePtr msg)
         //点云切系过滤车体
         box_filter.setMin(Eigen::Vector4f(-body_radius,-body_radius, 0, 1.0));//Min和Max是指立方体的两个对角点。每个点由一个四维向量表示，通常最后一个是1.（不知道为什么要有四个，大神知道的给解答一下下）
         box_filter.setMax(Eigen::Vector4f(body_radius, body_radius, body_height, 1.0));
-        pcl::transformPointCloud(*ptr,*ptr,ex_.inverse());
+        // pcl::transformPointCloud(*ptr,*ptr,ex_.inverse());
 
+        box_filter.setTransform(ex_.inverse());
         box_filter.setNegative(true);
         box_filter.setInputCloud(ptr);//输入源
         box_filter.filter(*ptr);
-        pcl::transformPointCloud(*ptr,*ptr,ex_);
+        // pcl::transformPointCloud(*ptr,*ptr,ex_);
     }
 
  
@@ -838,7 +839,8 @@ public:
         //pcl::transformPointCloud(*featsFromMap, *featsFromMap, init_transform);
         PointCloudXYZI::Ptr map_save(new PointCloudXYZI());
 
-        pcl::transformPointCloud(*pcl_wait_pub, *map_save, ex_.inverse());   
+		pcl::transformPointCloud(*pcl_wait_pub, *map_save, ex_);   
+        // pcl::transformPointCloud(*pcl_wait_pub, *map_save, ex_.inverse());   
    
         // }
         pcd_writer.writeBinary(map_file_path + "localization.pcd", *featsFromMap);
@@ -1055,6 +1057,7 @@ public:
 
         fill(epsi, epsi+23, 0.001);
         kf.init_dyn_share(get_f, df_dx, df_dw, h_share_model, NUM_MAX_ITERATIONS, epsi);
+        //!Here to change init of KF
 
         /*** debug record ***/
         // FILE *fp;
@@ -1208,17 +1211,10 @@ private:
             fout_pre<<setw(20)<<Measures.lidar_beg_time - first_lidar_time<<" "<<euler_cur.transpose()<<" "<< state_point.pos.transpose()<<" "<<ext_euler.transpose() << " "<<state_point.offset_T_L_I.transpose()<< " " << state_point.vel.transpose() \
             <<" "<<state_point.bg.transpose()<<" "<<state_point.ba.transpose()<<" "<<state_point.grav<< endl;
 
-            if(1) // If you need to see map point, change to "if(1)"
-            {
-                PointVector ().swap(ikdtree.PCL_Storage);
-                ikdtree.flatten(ikdtree.Root_Node, ikdtree.PCL_Storage, NOT_RECORD);
-                featsFromMap->clear();
-                featsFromMap->points = ikdtree.PCL_Storage;
-            }
-
             pointSearchInd_surf.resize(feats_down_size);
             Nearest_Points.resize(feats_down_size);
             int  rematch_num = 0;
+            
             bool nearest_search_en = true; //
 
             t2 = omp_get_wtime();
@@ -1287,7 +1283,14 @@ private:
 
     void map_publish_callback()
     {
-        if (map_pub_en || pcd_save_en) publish_map(pubLaserCloudMap_);
+        if (map_pub_en || pcd_save_en)
+        {
+            PointVector ().swap(ikdtree.PCL_Storage);
+            ikdtree.flatten(ikdtree.Root_Node, ikdtree.PCL_Storage, NOT_RECORD);
+            featsFromMap->clear();
+            featsFromMap->points = ikdtree.PCL_Storage;
+            publish_map(pubLaserCloudMap_);
+        }
     }
 
     void map_save_callback(std_srvs::srv::Trigger::Request::ConstSharedPtr req, std_srvs::srv::Trigger::Response::SharedPtr res)
