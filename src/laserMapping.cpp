@@ -1355,13 +1355,11 @@ void lasermap_fov_segment()
 
     points_cache_collect();
     double delete_begin = omp_get_wtime();
-    cout << "delete" << ikdtree.validnum() << std::endl;
     if(!reloc_en)
     {
         if(cub_needrm.size() > 0) kdtree_delete_counter = ikdtree.Delete_Point_Boxes(cub_needrm);
     }
     kdtree_delete_time = omp_get_wtime() - delete_begin;
-    cout << "delete2 " << ikdtree.validnum() << std::endl;
 
 }
 
