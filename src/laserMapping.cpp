@@ -55,6 +55,7 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/common/transforms.h>  // pcl::transformPointCloud
 #include <pcl/filters/crop_box.h>
+#include <pcl/registration/gicp.h>  // GICP for reloc initial coarse alignment
 
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -907,6 +908,13 @@ public:
         this->declare_parameter<double>("lidar_extrinsic.orientation.y", 0.0);
         this->declare_parameter<double>("lidar_extrinsic.orientation.z", 0.0);
 
+        this->declare_parameter<bool>("icp_align.use", false);
+        this->declare_parameter<int>("icp_align.accum_frames", 5);
+        this->declare_parameter<int>("icp_align.max_iterations", 50);
+        this->declare_parameter<double>("icp_align.max_corr_dist", 1.0);
+        this->declare_parameter<double>("icp_align.fitness_thresh", 0.5);
+        this->declare_parameter<double>("icp_align.voxel_leaf", 0.2);
+
 
         this->declare_parameter<double>("preprocess.blind", 0.01);
         this->declare_parameter<int>("preprocess.lidar_type", AVIA);
@@ -982,6 +990,13 @@ public:
         this->get_parameter_or<double>("lidar_extrinsic.orientation.x", lidar_extrinsic.transform.rotation.x, 0.0);
         this->get_parameter_or<double>("lidar_extrinsic.orientation.y", lidar_extrinsic.transform.rotation.y, 0.0);
         this->get_parameter_or<double>("lidar_extrinsic.orientation.z", lidar_extrinsic.transform.rotation.z, 0.0);
+
+        this->get_parameter_or<bool>("icp_align.use", icp_align_en, false);
+        this->get_parameter_or<int>("icp_align.accum_frames", icp_align_frames, 5);
+        this->get_parameter_or<int>("icp_align.max_iterations", icp_max_iter, 50);
+        this->get_parameter_or<double>("icp_align.max_corr_dist", icp_max_corr_dist, 1.0);
+        this->get_parameter_or<double>("icp_align.fitness_thresh", icp_fitness_thresh, 0.5);
+        this->get_parameter_or<double>("icp_align.voxel_leaf", icp_voxel_leaf, 0.2);
 
 
         init_trans.header.frame_id = "map";
@@ -1146,6 +1161,10 @@ public:
             else
             {
                 ikdtree.Build(cloud -> points);
+                // Keep a copy of the prior map (map frame) as the GICP target for the
+                // one-shot startup alignment. Only retained when alignment is enabled.
+                if (icp_align_en && initialPose_en)
+                    prior_map_ = cloud;
             }
         }
 
@@ -1171,6 +1190,119 @@ public:
     }
 
 private:
+    // Multi-frame GICP coarse alignment at reloc startup.
+    // Accumulates icp_align_frames scans (each transformed to the map frame by its
+    // own seeded+propagated state — all share the same absolute initial-pose error,
+    // so one rigid correction aligns the whole stack), then runs GICP once against
+    // the prior map and folds the HORIZONTAL correction (x, y, yaw — 4DOF) into the
+    // EKF state. roll/pitch/gravity/height, which the IMU observes correctly, are
+    // left untouched. A wait cap prevents hanging when scans are persistently sparse.
+    //
+    // Returns true while still accumulating (caller must SKIP this frame's EKF update);
+    // returns false once the (single) GICP attempt has run — caller proceeds normally
+    // using the corrected state. Sets icp_aligned_ when the attempt completes.
+    bool reloc_accumulate_and_align()
+    {
+        if (!prior_map_ || prior_map_->points.empty())
+        {
+            RCLCPP_WARN(this->get_logger(), "[reloc] no prior map for ICP align; keeping initialPose.");
+            icp_aligned_ = true;
+            return false;
+        }
+        if (!icp_accum_) icp_accum_.reset(new PointCloudXYZI());
+
+        icp_wait_count_++;
+        // Append the current frame (map frame) when it has enough points.
+        if (feats_down_size >= 10)
+        {
+            for (int i = 0; i < feats_down_size; i++)
+            {
+                PointType p_w;
+                pointBodyToWorld(&(feats_down_body->points[i]), &p_w);
+                icp_accum_->points.push_back(p_w);
+            }
+            icp_accum_count_++;
+        }
+
+        // Keep accumulating until we have enough frames, bounded by a wait cap so a
+        // persistently sparse startup can't hang the node forever.
+        if (icp_accum_count_ < icp_align_frames && icp_wait_count_ < icp_align_frames * 4)
+            return true;
+
+        // --- run the one-shot GICP on the accumulated cloud ---
+        icp_aligned_ = true;
+        if ((int)icp_accum_->points.size() < 100)
+        {
+            RCLCPP_WARN(this->get_logger(),
+                "[reloc] only %zu accumulated points after %d frames; too sparse, keeping initialPose.",
+                icp_accum_->points.size(), icp_wait_count_);
+            return false;
+        }
+        icp_accum_->width = icp_accum_->points.size();
+        icp_accum_->height = 1;
+
+        // optional voxel downsample of both clouds for speed/robustness
+        PointCloudXYZI::Ptr src_ds(new PointCloudXYZI), tgt_ds(new PointCloudXYZI);
+        if (icp_voxel_leaf > 0.0)
+        {
+            pcl::VoxelGrid<PointType> vg;
+            vg.setLeafSize(icp_voxel_leaf, icp_voxel_leaf, icp_voxel_leaf);
+            vg.setInputCloud(icp_accum_); vg.filter(*src_ds);
+            vg.setInputCloud(prior_map_); vg.filter(*tgt_ds);
+        }
+        else { src_ds = icp_accum_; tgt_ds = prior_map_; }
+
+        pcl::GeneralizedIterativeClosestPoint<PointType, PointType> gicp;
+        gicp.setMaximumIterations(icp_max_iter);
+        gicp.setMaxCorrespondenceDistance(icp_max_corr_dist);
+        gicp.setInputSource(src_ds);
+        gicp.setInputTarget(tgt_ds);
+        PointCloudXYZI aligned;
+        gicp.align(aligned);
+
+        if (!gicp.hasConverged() || gicp.getFitnessScore() > icp_fitness_thresh)
+        {
+            RCLCPP_WARN(this->get_logger(),
+                "[reloc] GICP did not converge (converged=%d, fitness=%.4f > %.4f, %d frames); keeping initialPose.",
+                (int)gicp.hasConverged(), gicp.getFitnessScore(), icp_fitness_thresh, icp_accum_count_);
+            icp_accum_.reset();
+            return false;
+        }
+
+        // delta maps the accumulated (seeded) map-frame points onto the prior map.
+        Eigen::Matrix4f T = gicp.getFinalTransformation();
+        Eigen::Matrix3d dR = T.block<3,3>(0,0).cast<double>();
+        Eigen::Vector3d dt = T.block<3,1>(0,3).cast<double>();
+
+        // Constrain to 4DOF: keep only the yaw component of dR, drop roll/pitch and
+        // dz, so the IMU-observed roll/pitch/gravity and height are not disturbed.
+        double yaw = std::atan2(dR(1,0), dR(0,0));
+        Eigen::Matrix3d dR_yaw;
+        dR_yaw = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+        Eigen::Vector3d dt_xy(dt.x(), dt.y(), 0.0);
+
+        // Apply the correction on the left (map frame): x_new = delta * x_old.
+        // All accumulated frames share the same absolute error, so the same delta
+        // also corrects the current (latest) propagated state.
+        state_ikfom s = kf.get_x();
+        Eigen::Matrix3d R_old = s.rot.toRotationMatrix();
+        Eigen::Vector3d p_old = s.pos;
+        Eigen::Matrix3d R_new = dR_yaw * R_old;
+        Eigen::Vector3d p_new = dR_yaw * p_old + dt_xy;
+        s.rot = SO3(Eigen::Quaterniond(R_new));
+        s.pos = p_new;
+        // grav is intentionally NOT rotated: yaw about gravity leaves it invariant,
+        // and we deliberately discard any roll/pitch from GICP.
+        kf.change_x(s);
+        state_point = kf.get_x();
+        icp_accum_.reset();  // free the accumulation buffer
+
+        RCLCPP_INFO(this->get_logger(),
+            "[reloc] GICP aligned over %d frames (fitness=%.4f): dyaw=%.2f deg, dxy=(%.3f, %.3f) m.",
+            icp_accum_count_, gicp.getFitnessScore(), yaw * 57.2957795, dt_xy.x(), dt_xy.y());
+        return false;
+    }
+
     void timer_callback()
     {
         if(sync_packages(Measures))
@@ -1238,7 +1370,18 @@ private:
                 RCLCPP_WARN(this->get_logger(), "No point, skip this scan!\n");
                 return;
             }
-            
+
+            /*** multi-frame GICP coarse alignment to correct initialPose before the
+                 first EKF update (reloc mode only). While accumulating frames we
+                 SKIP the EKF update so a mis-aligned prior map cannot produce bad
+                 associations; once GICP has run we proceed with the corrected state. ***/
+            if (reloc_en && initialPose_en && icp_align_en && !icp_aligned_)
+            {
+                if (reloc_accumulate_and_align())
+                    return;   // still accumulating — skip EKF update this frame
+                pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
+            }
+
             normvec->resize(feats_down_size);
             feats_down_world->resize(feats_down_size);
 
@@ -1424,6 +1567,19 @@ private:
     bool initialPose_en = false;
     geometry_msgs::msg::TransformStamped init_trans,lidar_extrinsic;
     std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_publisher_;
+
+    // ---- Reloc GICP initial coarse alignment ----
+    bool   icp_align_en = false;       // enable startup GICP alignment
+    bool   icp_aligned_ = false;       // becomes true after the one-shot attempt
+    int    icp_align_frames = 5;       // number of scans accumulated before GICP
+    int    icp_max_iter = 50;
+    double icp_max_corr_dist = 1.0;
+    double icp_fitness_thresh = 0.5;
+    double icp_voxel_leaf = 0.2;
+    PointCloudXYZI::Ptr prior_map_;    // target: prior map kept in map frame for GICP
+    PointCloudXYZI::Ptr icp_accum_;    // accumulated source scans (map frame)
+    int    icp_accum_count_ = 0;       // frames actually added to icp_accum_
+    int    icp_wait_count_ = 0;        // frames seen since accumulation started (wait cap)
 
 
     FILE *fp;

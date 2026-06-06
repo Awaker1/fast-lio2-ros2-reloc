@@ -10,6 +10,17 @@
             # 重定位
             reloc_en: true       # true: use priori global map
 
+        # 重定位启动时的 GICP 初始粗对齐：用第一帧扫描与先验地图配准，
+        # 自动校正 initialPose 的水平误差（x/y/yaw），缓解“初始位姿偏差大导致飘飞”。
+        # 仅在 reloc_en 且 initialPose.use 都为 true 时生效，且只在启动跑一次。
+        icp_align:
+            use: true            # true: 启动时做 GICP 粗对齐校正初始位姿
+            accum_frames: 5      # 累积多少帧成稠密点云再配准(=1 即单帧)；累积期间跳过EKF更新
+            max_iterations: 50   # GICP 最大迭代次数
+            max_corr_dist: 1.0   # 最大对应点距离(m)，初值误差大可适当调大
+            fitness_thresh: 0.5  # GICP fitness 分数阈值；超过则视为配准失败，保持原始 initialPose
+            voxel_leaf: 0.2      # source/target 配准前的体素降采样尺寸(m)，0 表示不降采样
+
         preprocess:
             lidar_type: 1                # 1 for Livox serials LiDAR, 2 for Velodyne LiDAR, 3 for ouster LiDAR, 
             scan_line:  4
