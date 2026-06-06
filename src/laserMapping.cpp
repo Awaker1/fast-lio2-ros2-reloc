@@ -783,6 +783,13 @@ void h_share_model(state_ikfom &s, esekfom::dyn_share_datastruct<double> &ekfom_
         return;
     }
 
+    // Diagnostic: a low effective-point ratio means scan-to-map association is
+    // degrading — the precursor to reloc drift/fly-away. Surface it so the
+    // condition is observable when reproducing drift.
+    if (feats_down_size > 0 && effct_feat_num < feats_down_size / 10)
+        std::cerr << "[reloc] low effective points: " << effct_feat_num
+                  << " / " << feats_down_size << std::endl;
+
     res_mean_last = total_residual / effct_feat_num;
     match_time  += omp_get_wtime() - match_start;
     double solve_start_  = omp_get_wtime();
@@ -990,13 +997,23 @@ public:
         Eigen::Affine3f init_ = Eigen::Affine3f::Identity();
         ex_ = Eigen::Affine3f::Identity();
         Eigen::Affine3f c = Eigen::Affine3f::Identity();
+        // Normalize quaternions read from YAML: hand-entered values are rarely
+        // exactly unit-norm, and an un-normalized quaternion warps the rotation.
+        Eigen::Quaternionf q_init(init_trans.transform.rotation.w,init_trans.transform.rotation.x,init_trans.transform.rotation.y,init_trans.transform.rotation.z);
+        Eigen::Quaternionf q_ex(lidar_extrinsic.transform.rotation.w,lidar_extrinsic.transform.rotation.x,lidar_extrinsic.transform.rotation.y,lidar_extrinsic.transform.rotation.z);
+        q_init.normalize();
+        q_ex.normalize();
         init_.translate(Eigen::Vector3f(init_trans.transform.translation.x,init_trans.transform.translation.y,init_trans.transform.translation.z));
-        init_.rotate(Eigen::Quaternionf(init_trans.transform.rotation.w,init_trans.transform.rotation.x,init_trans.transform.rotation.y,init_trans.transform.rotation.z));
+        init_.rotate(q_init);
         ex_.translate(Eigen::Vector3f(lidar_extrinsic.transform.translation.x,lidar_extrinsic.transform.translation.y,lidar_extrinsic.transform.translation.z));
-        ex_.rotate(Eigen::Quaternionf(lidar_extrinsic.transform.rotation.w,lidar_extrinsic.transform.rotation.x,lidar_extrinsic.transform.rotation.y,lidar_extrinsic.transform.rotation.z));
-	    
+        ex_.rotate(q_ex);
+
         if(initialPose_en)
-            c = ex_*init_;
+            // Initial pose is now seeded directly into the EKF state (see set_init_pose
+            // below), so the EKF operates in the map frame: odom coincides with map and
+            // the map->odom static TF is identity. (Previously the prior map was moved
+            // by init_.inverse() while map->odom carried ex_*init_.)
+            c = Eigen::Affine3f::Identity();
 	    else
             c = ex_;
         auto tvec = c.translation();
@@ -1058,6 +1075,16 @@ public:
         p_imu->set_gyr_bias_cov(V3D(b_gyr_cov, b_gyr_cov, b_gyr_cov));
         p_imu->set_acc_bias_cov(V3D(b_acc_cov, b_acc_cov, b_acc_cov));
 
+        // Seed the EKF with the configured initial pose (map frame) at IMU init,
+        // instead of pre-transforming the prior map. init_ holds the (normalized)
+        // initialPose built above. .linear() is the pure rotation (no scale applied).
+        if(initialPose_en)
+        {
+            V3D init_T = init_.translation().cast<double>();
+            M3D init_R = init_.linear().cast<double>();
+            p_imu->set_init_pose(init_T, init_R);
+        }
+
         fill(epsi, epsi+23, 0.001);
         kf.init_dyn_share(get_f, df_dx, df_dw, h_share_model, NUM_MAX_ITERATIONS, epsi);
         //!Here to change init of KF
@@ -1107,14 +1134,19 @@ public:
             {
                 std::cout << "读取 " <<  map_file_path + "localization.pcd" << " 失败!" << std::endl;
             }
-            if(initialPose_en)
+            // The prior map is kept in the map frame as-is. The initial pose is now
+            // seeded into the EKF state (see set_init_pose above), so the EKF works
+            // directly in the map frame — the map must NOT be pre-transformed here.
+            if (cloud->points.empty())
             {
-                Eigen::Affine3f init_transform = Eigen::Affine3f::Identity();
-                init_transform.translate(Eigen::Vector3f(init_trans.transform.translation.x,init_trans.transform.translation.y,init_trans.transform.translation.z));
-                init_transform.rotate(Eigen::Quaternionf(init_trans.transform.rotation.w,init_trans.transform.rotation.x,init_trans.transform.rotation.y,init_trans.transform.rotation.z));
-                pcl::transformPointCloud(*cloud, *cloud,init_.inverse());   
+                RCLCPP_ERROR(this->get_logger(),
+                    "Prior map is empty (load failed or empty file); cannot build reloc map. Disabling reloc.");
+                reloc_en = false;
             }
-            ikdtree.Build(cloud -> points);
+            else
+            {
+                ikdtree.Build(cloud -> points);
+            }
         }
 
 

@@ -46,6 +46,7 @@ class ImuProcess
   void set_acc_cov(const V3D &scaler);
   void set_gyr_bias_cov(const V3D &b_g);
   void set_acc_bias_cov(const V3D &b_a);
+  void set_init_pose(const V3D &t, const M3D &R);
   Eigen::Matrix<double, 12, 12> Q;
   void Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, PointCloudXYZI::Ptr pcl_un_);
 
@@ -70,6 +71,9 @@ class ImuProcess
   vector<M3D>    v_rot_pcl_;
   M3D Lidar_R_wrt_IMU;
   V3D Lidar_T_wrt_IMU;
+  M3D init_R_;            // initial pose rotation (map frame), applied to EKF state at init
+  V3D init_T_;            // initial pose translation (map frame)
+  bool init_pose_set_ = false;
   V3D mean_acc;
   V3D mean_gyr;
   V3D angvel_last;
@@ -95,6 +99,8 @@ ImuProcess::ImuProcess()
   angvel_last     = Zero3d;
   Lidar_T_wrt_IMU = Zero3d;
   Lidar_R_wrt_IMU = Eye3d;
+  init_R_ = Eye3d;
+  init_T_ = Zero3d;
   last_imu_.reset(new sensor_msgs::msg::Imu());
 }
 
@@ -153,6 +159,13 @@ void ImuProcess::set_acc_bias_cov(const V3D &b_a)
   cov_bias_acc = b_a;
 }
 
+void ImuProcess::set_init_pose(const V3D &t, const M3D &R)
+{
+  init_T_ = t;
+  init_R_ = R;
+  init_pose_set_ = true;
+}
+
 void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, int &N)
 {
   /** 1. initializing the gravity, gyro bias, acc and gyro covariance
@@ -189,12 +202,28 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
     N ++;
   }
   state_ikfom init_state = kf_state.get_x();
-  init_state.grav = S2(- mean_acc / mean_acc.norm() * G_m_s2);
-  
+  // Gravity measured in the IMU body frame at startup (== -mean_acc direction).
+  V3D grav_body = - mean_acc / mean_acc.norm() * G_m_s2;
+
   //state_inout.rot = Eye3d; // Exp(mean_acc.cross(V3D(0, 0, -1 / scale_gravity)));
   init_state.bg  = mean_gyr;
   init_state.offset_T_L_I = Lidar_T_wrt_IMU;
   init_state.offset_R_L_I = Lidar_R_wrt_IMU;
+
+  if (init_pose_set_)
+  {
+    // Seed the EKF with the configured initial pose (map frame) instead of
+    // pre-transforming the prior map. The body-frame gravity must be expressed
+    // in the same world (map) frame, i.e. rotated by the initial attitude, so
+    // gravity stays consistent with the seeded rotation.
+    init_state.pos = init_T_;
+    init_state.rot = SO3(Eigen::Quaterniond(init_R_));
+    init_state.grav = S2(init_R_ * grav_body);
+  }
+  else
+  {
+    init_state.grav = S2(grav_body);
+  }
   kf_state.change_x(init_state);
 
   esekfom::esekf<state_ikfom, 12, input_ikfom>::cov init_P = kf_state.get_P();
